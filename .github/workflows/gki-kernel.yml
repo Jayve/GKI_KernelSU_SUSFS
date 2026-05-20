@@ -591,18 +591,35 @@ jobs:
             fi
           fi
 
-      - name: Fix SukiSU sulog argv type
+      - name: Fix SukiSU SUSFS compatibility
         if: ${{ inputs.kernelsu_variant == 'SukiSU' }}
         run: |
           set -e
           cd "$CONFIG/common"
 
           SULOG_EVENT="drivers/kernelsu/sulog/event.c"
+          KSU_RUNTIME="drivers/kernelsu/runtime/ksud.c"
+          KSU_CORE="drivers/kernelsu/ksu.c"
+
           if [ -f "$SULOG_EVENT" ] && \
              grep -q 'struct user_arg_ptr \*argv_user' "$SULOG_EVENT" && \
              grep -q '#define USER_ARG_NULL ((struct user_arg_ptr){ 0 })' "$SULOG_EVENT"; then
             perl -0pi -e 's~#define USER_ARG_NULL \(\(struct user_arg_ptr\)\{ 0 \}\)~#ifdef CONFIG_KSU_SUSFS\n#define USER_ARG_NULL NULL\n#else\n#define USER_ARG_NULL ((struct user_arg_ptr){ 0 })\n#endif~' "$SULOG_EVENT"
             grep -n 'USER_ARG_NULL\|KSU_SULOG_EVENT_IOCTL_GRANT_ROOT' "$SULOG_EVENT"
+          fi
+
+          if [ -f "$KSU_RUNTIME" ] && \
+             grep -q 'ksu_init_rc_hook_key_false' "$KSU_RUNTIME" && \
+             ! grep -q 'DEFINE_STATIC_KEY_TRUE(ksu_is_init_rc_hook_enabled)' "$KSU_RUNTIME"; then
+            perl -0pi -e 's~extern struct static_key_false ksu_init_rc_hook_key_false;\nextern struct static_key_false ksu_input_hook_key_false;~DEFINE_STATIC_KEY_TRUE(ksu_is_init_rc_hook_enabled);\nDEFINE_STATIC_KEY_TRUE(ksu_is_input_hook_enabled);~' "$KSU_RUNTIME"
+            perl -pi -e 's/ksu_init_rc_hook_key_false/ksu_is_init_rc_hook_enabled/g; s/ksu_input_hook_key_false/ksu_is_input_hook_enabled/g' "$KSU_RUNTIME"
+            grep -n 'ksu_is_init_rc_hook_enabled\|ksu_is_input_hook_enabled' "$KSU_RUNTIME"
+          fi
+
+          if [ -f "$KSU_CORE" ] && \
+             ! grep -Rqs 'ksu_selinux_hide_running __read_mostly' drivers/kernelsu; then
+            perl -0pi -e 's~(#include "ss/services.h"\n)~$1\n#ifdef CONFIG_KSU_SUSFS\nstruct selinux_state fake_state;\nbool ksu_selinux_hide_running __read_mostly = false;\n#endif\n~' "$KSU_CORE"
+            grep -n 'fake_state\|ksu_selinux_hide_running' "$KSU_CORE"
           fi
 
       - name: Build with retry
