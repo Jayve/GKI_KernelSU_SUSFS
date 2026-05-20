@@ -591,6 +591,20 @@ jobs:
             fi
           fi
 
+      - name: Fix SukiSU sulog argv type
+        if: ${{ inputs.kernelsu_variant == 'SukiSU' }}
+        run: |
+          set -e
+          cd "$CONFIG/common"
+
+          SULOG_EVENT="drivers/kernelsu/sulog/event.c"
+          if [ -f "$SULOG_EVENT" ] && \
+             grep -q 'struct user_arg_ptr \*argv_user' "$SULOG_EVENT" && \
+             grep -q '#define USER_ARG_NULL ((struct user_arg_ptr){ 0 })' "$SULOG_EVENT"; then
+            perl -0pi -e 's~#define USER_ARG_NULL \(\(struct user_arg_ptr\)\{ 0 \}\)~#ifdef CONFIG_KSU_SUSFS\n#define USER_ARG_NULL NULL\n#else\n#define USER_ARG_NULL ((struct user_arg_ptr){ 0 })\n#endif~' "$SULOG_EVENT"
+            grep -n 'USER_ARG_NULL\|KSU_SULOG_EVENT_IOCTL_GRANT_ROOT' "$SULOG_EVENT"
+          fi
+
       - name: Build with retry
         uses: nick-fields/retry@v3
         with:
