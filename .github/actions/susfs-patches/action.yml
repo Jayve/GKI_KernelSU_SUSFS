@@ -147,6 +147,25 @@ runs:
       run: |
         patch -p1 < 50_add_susfs_in_gki-${{ inputs.version }}.patch
 
+        # SUSFS v2.3.0 can declare the statfs spoof helper after its first call.
+        # Move the existing prototype before the caller, inside the same KSTAT
+        # guard. Older patches and upstream fixes need no adjustment.
+        python3 - <<'PY'
+        from pathlib import Path
+
+        path = Path("fs/statfs.c")
+        source = path.read_text()
+        prototype = "extern int susfs_sus_kstat_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf, bool *is_fuse);\n"
+        caller = "#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\nstatic int susfs_statfs_by_dentry("
+        declaration_pos = source.find(prototype)
+        caller_pos = source.find(caller)
+        if caller_pos >= 0 and declaration_pos > caller_pos:
+            source = source.replace(prototype, "", 1)
+            source = source.replace(caller, caller.replace("\n", "\n" + prototype + "\n", 1), 1)
+            path.write_text(source)
+            print("Moved SUSFS statfs spoof prototype before its first call")
+        PY
+
         # SUSFS's OPEN_REDIRECT code unconditionally calls VMA_PAD_START(), which
         # only exists on GKI branches that carry Google's page-size-migration
         # feature (added to each android version's kernel/common branch at a
