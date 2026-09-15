@@ -153,6 +153,15 @@ runs:
         python3 - <<'PY'
         from pathlib import Path
 
+        # SUSFS v2.3.0 calls security_sb_statfs() without including its header.
+        # Include the kernel declaration (and CONFIG_SECURITY=n stub) directly.
+        susfs_path = Path("fs/susfs.c")
+        susfs_source = susfs_path.read_text()
+        security_header = "#include <linux/security.h>"
+        if "security_sb_statfs(" in susfs_source and security_header not in susfs_source:
+            susfs_path.write_text(security_header + "\n" + susfs_source)
+            print("Added linux/security.h for SUSFS security_sb_statfs")
+
         path = Path("fs/statfs.c")
         source = path.read_text()
         prototype = "extern int susfs_sus_kstat_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf, bool *is_fuse);\n"
